@@ -5,27 +5,56 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+type SOAPPart interface {
+	Fault() *SOAPFault
+	Body() []byte
+	Header() *Header
+	UnmarshalBody(ptr interface{}) error
+}
+
+type HttpPart interface {
+	StatusCode() int
+	Body() []byte
+}
+
 type CallResponse struct {
-	HttpStatusCode int
-	Response       Envelope
+	http     httpPart
+	envelope Envelope
+}
+
+func (r CallResponse) Fault() *SOAPFault {
+	return r.envelope.Body.Fault
+}
+
+func (r CallResponse) Body() []byte {
+	return r.envelope.Body.Content
+}
+
+func (r CallResponse) Header() *Header {
+	return r.envelope.Header
+}
+
+func (r CallResponse) UnmarshalBody(ptr interface{}) error {
+	return xml.Unmarshal(r.Body(), ptr)
+}
+
+type httpPart struct {
+	httpStatusCode int
+	body           []byte
+}
+
+func (p httpPart) StatusCode() int {
+	return p.httpStatusCode
+}
+
+func (p httpPart) Body() []byte {
+	return p.body
 }
 
 func (r CallResponse) IsSuccess() bool {
-	return r.HttpStatusCode == fasthttp.StatusOK && r.Response.Body.Fault == nil
+	return r.http.httpStatusCode == fasthttp.StatusOK && r.envelope.Body.Fault == nil
 }
 
-func (r CallResponse) SoapFault() *SOAPFault {
-	return r.Response.Body.Fault
-}
-
-func (r CallResponse) SoapContent() []byte {
-	return r.Response.Body.Content
-}
-
-func (r CallResponse) SoapHeader() *Header {
-	return r.Response.Header
-}
-
-func (r CallResponse) UnmarshalContent(ptr interface{}) error {
-	return xml.Unmarshal(r.SoapContent(), ptr)
+func (r CallResponse) HTTP() HttpPart {
+	return r.http
 }

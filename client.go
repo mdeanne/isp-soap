@@ -17,7 +17,7 @@ type Client struct {
 	httpHeaders map[string]string
 }
 
-func (c *Client) Call(action string, body RequestBody, opts ...CallOption) (*CallResponse, error) {
+func (c *Client) Call(action string, body RequestBody, opts ...CallOption) (CallResponse, error) {
 	request := fasthttp.AcquireRequest()
 	response := fasthttp.AcquireResponse()
 	defer func() {
@@ -44,16 +44,17 @@ func (c *Client) Call(action string, body RequestBody, opts ...CallOption) (*Cal
 	reqEnv := Envelope{
 		Body: Body{},
 	}
+	resp := CallResponse{}
 	if body != nil {
 		bytes, err := body.Xml()
 		if err != nil {
-			return nil, fmt.Errorf("prepare request body: %v", err)
+			return resp, fmt.Errorf("prepare request body: %v", err)
 		}
 		reqEnv.Body.Content = bytes
 	}
 	bytes, err := xml.Marshal(reqEnv)
 	if err != nil {
-		return nil, fmt.Errorf("marhal envelope: %v", err)
+		return resp, fmt.Errorf("marhal envelope: %v", err)
 	}
 
 	request.Header.SetContentLength(len(bytes))
@@ -65,18 +66,19 @@ func (c *Client) Call(action string, body RequestBody, opts ...CallOption) (*Cal
 		err = c.cli.Do(request, response)
 	}
 	if err != nil {
-		return nil, err //internal or network error
+		return resp, err //internal or network error
 	}
 
 	resEnv := Envelope{}
-	if err := xml.Unmarshal(response.Body(), &resEnv); err != nil {
-		return nil, fmt.Errorf("unmarshal enveloper: %v", err)
+	copied := make([]byte, len(response.Body()))
+	copy(copied, response.Body())
+	resp.http.httpStatusCode = response.StatusCode()
+	resp.http.body = copied
+	if err := xml.Unmarshal(copied, &resEnv); err != nil {
+		return resp, xml.UnmarshalError(fmt.Sprintf("unmarshal enveloper: %v", err))
 	}
-
-	return &CallResponse{
-		HttpStatusCode: response.StatusCode(),
-		Response:       resEnv,
-	}, nil
+	resp.envelope = resEnv
+	return resp, nil
 }
 
 func NewClient(url string, opts ...ClientOption) *Client {
